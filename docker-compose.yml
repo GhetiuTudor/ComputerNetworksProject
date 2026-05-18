@@ -1,0 +1,9 @@
+
+services:
+  server:
+    build: .
+    command: python server/server.py
+    ports:
+      - "9000:5000"
+    volumes:
+      - ./server/programs:/app/server/programs

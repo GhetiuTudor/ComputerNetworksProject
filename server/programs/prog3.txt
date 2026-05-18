@@ -1,0 +1,10 @@
+x = 1
+y = 2
+z = x + y
+a = z * 10
+b = a - 5
+c = b / 3
+d = c + x
+e = d * y
+f = e - z
+result = f + 100
