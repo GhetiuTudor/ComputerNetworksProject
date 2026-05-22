@@ -1,11 +1,11 @@
 FROM python:3.11-slim
 
-# No external dependencies — stdlib only
+# fara dep externe 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Copy everything into the image
+# se copiaza toata applicatia in imagine
 COPY . /app
 
-# Default: start the server
+# start default 
 CMD ["python", "server/server.py"]
