@@ -48,22 +48,3 @@ def receive_message(sock: socket.socket) -> str | None:
         if b"\n" in data:  # am gasit delimitatorul - mesajul e complet
             break
     return data.decode(ENCODING).strip()  # decodifica bytes -> string si elimina whitespace
-
-
-# --- constante pentru comenzile protocolului ---
-# definite ca variabile pentru a evita typo-uri si a centraliza denumirile
-
-CMD_LIST = "LIST"           # listeaza toate programele si starile lor
-CMD_STATUS = "STATUS"       # afiseaza informatii detaliate despre un program
-CMD_ATTACH = "ATTACH"       # ataseaza clientul la un program pentru debugging
-CMD_DETACH = "DETACH"       # detaseaza clientul de la programul curent
-CMD_QUIT = "QUIT"           # deconecteaza clientul de la server
-CMD_BREAK = "BREAK"         # seteaza un breakpoint la linia specificata
-CMD_UNBREAK = "UNBREAK"     # sterge un breakpoint de la linia specificata
-CMD_CONTINUE = "CONTINUE"   # reia executia unui program oprit pe breakpoint
-CMD_PRINT = "PRINT"         # afiseaza valoarea unei variabile din program
-CMD_SET = "SET"             # modifica valoarea unei variabile din program
-CMD_RUN = "RUN"             # porneste executia unui program aflat in starea READY
-
-RESP_OK = "OK"              # prefix pentru raspunsuri de succes
-RESP_ERROR = "ERROR"        # prefix pentru raspunsuri de eroare

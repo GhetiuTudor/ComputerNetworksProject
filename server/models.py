@@ -9,7 +9,7 @@ import socket
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Dict, Optional, Set
 
 
 # enum care defineste toate starile posibile ale unui program
@@ -63,29 +63,3 @@ class ProgramState:
     # Condition wrapeaza un Lock si permite wait/notify pentru sincronizare intre threaduri
     condition: threading.Condition = field(
         default_factory=lambda: threading.Condition(threading.Lock()))
-
-    # --- functii helper ---
-
-    # verifica daca programul a terminat executia tuturor liniilor
-    def is_finished(self) -> bool:
-        """Returneaza True cand nu mai sunt linii de executat."""
-        return self.current_line >= len(self.lines)
-
-    # reseteaza programul la starea initiala pentru re-executie
-    def reset(self) -> None:
-        """
-        Reseteaza programul la starea READY.
-        Goleste variabilele, pune linia curenta pe 0 si schimba statusul.
-        """
-        self.variables.clear()   # sterge toate variabilele acumulate
-        self.current_line = 0    # revine la prima linie
-        self.status = ExecutionStatus.READY  # marcheaza ca gata de pornire
-
-    # reprezentarea text a starii programului (util pentru debugging/logging)
-    def __repr__(self) -> str:
-        """Returneaza o reprezentare text concisa a starii programului."""
-        return (
-            f"ProgramState(name={self.name!r}, "
-            f"line={self.current_line}/{len(self.lines)}, "
-            f"status={self.status.value})"
-        )

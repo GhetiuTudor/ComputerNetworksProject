@@ -8,28 +8,11 @@ LIST, STATUS, ATTACH, DETACH, RUN, BREAK, UNBREAK, CONTINUE, PRINT, SET, QUIT, H
 """
 
 import socket
-import threading
 from typing import Dict
 
 from models import ProgramState, ExecutionStatus
 from program_runner import start_single_program
-from protocol import (
-    send_message,
-    receive_message,
-    CMD_LIST,
-    CMD_STATUS,
-    CMD_ATTACH,
-    CMD_DETACH,
-    CMD_QUIT,
-    CMD_BREAK,
-    CMD_UNBREAK,
-    CMD_CONTINUE,
-    CMD_PRINT,
-    CMD_SET,
-    CMD_RUN,
-    RESP_OK,
-    RESP_ERROR,
-)
+from protocol import send_message, receive_message
 
 
 # formateaza informatiile despre un program intr-o singura linie
@@ -96,7 +79,7 @@ def handle_client(
             # maxsplit=1 pastreaza argumentele ca un singur string
             parts = raw.split(maxsplit=1)
             if not parts:
-                send_message(client_sock, f"{RESP_ERROR} Empty command.")
+                send_message(client_sock, f"ERROR Empty command.")
                 continue  # comanda goala, asteapta urmatoarea
 
             cmd = parts[0].upper()  # comanda (case-insensitive)
@@ -104,7 +87,7 @@ def handle_client(
 
             # ---- LIST -----------------------------------------------
             # listeaza toate programele si starea lor curenta
-            if cmd == CMD_LIST:
+            if cmd == "LIST":
                 if not programs:
                     send_message(client_sock, "No programs loaded.")
                 else:
@@ -120,12 +103,12 @@ def handle_client(
 
             # ---- STATUS <program> ------------------------------------
             # afiseaza informatii detaliate despre un program specific
-            elif cmd == CMD_STATUS:
+            elif cmd == "STATUS":
                 name = arg.strip()
                 if not name:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: STATUS <program>")
+                    send_message(client_sock, f"ERROR Usage: STATUS <program>")
                 elif name not in programs:
-                    send_message(client_sock, f"{RESP_ERROR} Unknown program: {name}")
+                    send_message(client_sock, f"ERROR Unknown program: {name}")
                 else:
                     s = programs[name]
                     # citeste starea sub lock pentru consistenta
@@ -135,12 +118,12 @@ def handle_client(
 
             # ---- ATTACH <program> ------------------------------------
             # ataseaza clientul la un program pentru a-l putea controla
-            elif cmd == CMD_ATTACH:
+            elif cmd == "ATTACH":
                 name = arg.strip()
                 if not name:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: ATTACH <program>")
+                    send_message(client_sock, f"ERROR Usage: ATTACH <program>")
                 elif name not in programs:
-                    send_message(client_sock, f"{RESP_ERROR} Unknown program: {name}")
+                    send_message(client_sock, f"ERROR Unknown program: {name}")
                 else:
                     state = programs[name]
                     with state.condition:
@@ -148,21 +131,21 @@ def handle_client(
                         if state.attached_client is not None and state.attached_client != addr_str:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} Program already controlled by {state.attached_client}",
+                                f"ERROR Program already controlled by {state.attached_client}",
                             )
                         else:
                             # ataseaza clientul curent la program
                             state.attached_client = addr_str
                             state.attached_socket = client_sock
                             attached_program = name
-                            send_message(client_sock, f"{RESP_OK} Attached to {name}")
+                            send_message(client_sock, f"OK Attached to {name}")
                             print(f"[handler] {addr_str} attached to {name}")
 
             # ---- DETACH ----------------------------------------------
             # detaseaza clientul de la programul curent
-            elif cmd == CMD_DETACH:
+            elif cmd == "DETACH":
                 if attached_program is None:
-                    send_message(client_sock, f"{RESP_ERROR} Not attached to any program.")
+                    send_message(client_sock, f"ERROR Not attached to any program.")
                 else:
                     state = programs[attached_program]
                     with state.condition:
@@ -175,18 +158,18 @@ def handle_client(
                             state.status = ExecutionStatus.RUNNING
                             state.condition.notify_all()  # deblocheaza runner-ul
                             print(f"[handler] Auto-resumed {attached_program} on detach")
-                    send_message(client_sock, f"{RESP_OK} Detached from {attached_program}")
+                    send_message(client_sock, f"OK Detached from {attached_program}")
                     print(f"[handler] {addr_str} detached from {attached_program}")
                     attached_program = None  # reseteaza programul atasat local
 
             # ---- RUN <program> -------------------------------------------
             # porneste executia unui program care este in starea READY
-            elif cmd == CMD_RUN:
+            elif cmd == "RUN":
                 name = arg.strip()
                 if not name:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: RUN <program>")
+                    send_message(client_sock, f"ERROR Usage: RUN <program>")
                 elif name not in programs:
-                    send_message(client_sock, f"{RESP_ERROR} Unknown program: {name}")
+                    send_message(client_sock, f"ERROR Unknown program: {name}")
                 else:
                     state = programs[name]
                     with state.condition:
@@ -194,35 +177,35 @@ def handle_client(
                         if state.status != ExecutionStatus.READY:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} {name} is {state.status.value}. "
+                                f"ERROR {name} is {state.status.value}. "
                                 f"RUN is only valid when status is READY.",
                             )
                         else:
                             # creeaza si porneste un thread dedicat pentru executie
                             start_single_program(state)
                             print(f"[handler] {addr_str} started {name}")
-                            send_message(client_sock, f"{RESP_OK} Started {name}")
+                            send_message(client_sock, f"OK Started {name}")
 
             # ---- BREAK <program> <line> ------------------------------
             # seteaza un breakpoint la o linie specificata
             # functioneaza doar cand programul este in READY sau PAUSED
-            elif cmd == CMD_BREAK:
+            elif cmd == "BREAK":
                 tokens = arg.split()
                 if len(tokens) != 2:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: BREAK <program> <line>")
+                    send_message(client_sock, f"ERROR Usage: BREAK <program> <line>")
                 elif attached_program is None:
-                    send_message(client_sock, f"{RESP_ERROR} Not attached to any program.")
+                    send_message(client_sock, f"ERROR Not attached to any program.")
                 else:
                     name, line_str = tokens
                     # verifica ca programul specificat e cel la care e atasat clientul
                     if name != attached_program:
                         send_message(
                             client_sock,
-                            f"{RESP_ERROR} You are attached to {attached_program}, "
+                            f"ERROR You are attached to {attached_program}, "
                             f"not {name}.",
                         )
                     elif name not in programs:
-                        send_message(client_sock, f"{RESP_ERROR} Unknown program: {name}")
+                        send_message(client_sock, f"ERROR Unknown program: {name}")
                     else:
                         state = programs[name]
                         # verifica starea sub lock - BREAK nu e permis in RUNNING sau FINISHED
@@ -230,14 +213,14 @@ def handle_client(
                             if state.status == ExecutionStatus.RUNNING:
                                 send_message(
                                     client_sock,
-                                    f"{RESP_ERROR} {name} is RUNNING. "
+                                    f"ERROR {name} is RUNNING. "
                                     f"BREAK is only allowed while READY or PAUSED.",
                                 )
                                 continue  # revine la citirea urmatoarei comenzi
                             if state.status == ExecutionStatus.FINISHED:
                                 send_message(
                                     client_sock,
-                                    f"{RESP_ERROR} {name} is FINISHED.",
+                                    f"ERROR {name} is FINISHED.",
                                 )
                                 continue
                         # parseaza numarul de linie
@@ -246,14 +229,14 @@ def handle_client(
                         except ValueError:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} Invalid line number: '{line_str}' is not an integer.",
+                                f"ERROR Invalid line number: '{line_str}' is not an integer.",
                             )
                             continue
                         # verifica ca linia e in intervalul valid
                         if line_no < 0 or line_no >= len(state.lines):
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} Line {line_no} out of range "
+                                f"ERROR Line {line_no} out of range "
                                 f"(valid: 0–{len(state.lines) - 1}).",
                             )
                         else:
@@ -263,29 +246,29 @@ def handle_client(
                             print(f"[handler] Breakpoint added: {name}:{line_no}")
                             send_message(
                                 client_sock,
-                                f"{RESP_OK} Breakpoint set at {name}:{line_no}",
+                                f"OK Breakpoint set at {name}:{line_no}",
                             )
 
             # ---- UNBREAK <program> <line> ----------------------------
             # sterge un breakpoint de la o linie specificata
             # functioneaza doar cand programul este in READY sau PAUSED
-            elif cmd == CMD_UNBREAK:
+            elif cmd == "UNBREAK":
                 tokens = arg.split()
                 if len(tokens) != 2:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: UNBREAK <program> <line>")
+                    send_message(client_sock, f"ERROR Usage: UNBREAK <program> <line>")
                 elif attached_program is None:
-                    send_message(client_sock, f"{RESP_ERROR} Not attached to any program.")
+                    send_message(client_sock, f"ERROR Not attached to any program.")
                 else:
                     name, line_str = tokens
                     # verifica ca programul specificat e cel la care e atasat clientul
                     if name != attached_program:
                         send_message(
                             client_sock,
-                            f"{RESP_ERROR} You are attached to {attached_program}, "
+                            f"ERROR You are attached to {attached_program}, "
                             f"not {name}.",
                         )
                     elif name not in programs:
-                        send_message(client_sock, f"{RESP_ERROR} Unknown program: {name}")
+                        send_message(client_sock, f"ERROR Unknown program: {name}")
                     else:
                         state = programs[name]
                         # verifica starea sub lock - UNBREAK nu e permis in RUNNING sau FINISHED
@@ -293,14 +276,14 @@ def handle_client(
                             if state.status == ExecutionStatus.RUNNING:
                                 send_message(
                                     client_sock,
-                                    f"{RESP_ERROR} {name} is RUNNING. "
+                                    f"ERROR {name} is RUNNING. "
                                     f"UNBREAK is only allowed while READY or PAUSED.",
                                 )
                                 continue
                             if state.status == ExecutionStatus.FINISHED:
                                 send_message(
                                     client_sock,
-                                    f"{RESP_ERROR} {name} is FINISHED.",
+                                    f"ERROR {name} is FINISHED.",
                                 )
                                 continue
                         # parseaza numarul de linie
@@ -309,7 +292,7 @@ def handle_client(
                         except ValueError:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} Invalid line number: '{line_str}' is not an integer.",
+                                f"ERROR Invalid line number: '{line_str}' is not an integer.",
                             )
                             continue
                         state = programs[name]
@@ -321,19 +304,19 @@ def handle_client(
                                 print(f"[handler] Breakpoint removed: {name}:{line_no}")
                                 send_message(
                                     client_sock,
-                                    f"{RESP_OK} Breakpoint removed at {name}:{line_no}",
+                                    f"OK Breakpoint removed at {name}:{line_no}",
                                 )
                             else:
                                 send_message(
                                     client_sock,
-                                    f"{RESP_ERROR} No breakpoint at {name}:{line_no}.",
+                                    f"ERROR No breakpoint at {name}:{line_no}.",
                                 )
 
             # ---- CONTINUE --------------------------------------------
             # reia executia unui program oprit pe breakpoint (PAUSED -> RUNNING)
-            elif cmd == CMD_CONTINUE:
+            elif cmd == "CONTINUE":
                 if attached_program is None:
-                    send_message(client_sock, f"{RESP_ERROR} Not attached to any program.")
+                    send_message(client_sock, f"ERROR Not attached to any program.")
                 else:
                     state = programs[attached_program]
                     with state.condition:
@@ -341,7 +324,7 @@ def handle_client(
                         if state.status != ExecutionStatus.PAUSED:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} {attached_program} is not paused "
+                                f"ERROR {attached_program} is not paused "
                                 f"(current state: {state.status.value}).",
                             )
                         else:
@@ -349,17 +332,17 @@ def handle_client(
                             state.status = ExecutionStatus.RUNNING
                             state.condition.notify_all()  # deblocheaza runner-ul care asteapta pe wait()
                             print(f"[handler] Resumed {attached_program}")
-                            send_message(client_sock, f"{RESP_OK} Resumed {attached_program}")
+                            send_message(client_sock, f"OK Resumed {attached_program}")
 
             # ---- PRINT <variable> ------------------------------------
             # afiseaza valoarea unei variabile din programul atasat
             # functioneaza doar cand programul este in PAUSED
-            elif cmd == CMD_PRINT:
+            elif cmd == "PRINT":
                 var_name = arg.strip()
                 if not var_name:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: PRINT <variable>")
+                    send_message(client_sock, f"ERROR Usage: PRINT <variable>")
                 elif attached_program is None:
-                    send_message(client_sock, f"{RESP_ERROR} Not attached to any program.")
+                    send_message(client_sock, f"ERROR Not attached to any program.")
                 else:
                     state = programs[attached_program]
                     with state.condition:
@@ -367,7 +350,7 @@ def handle_client(
                         if state.status != ExecutionStatus.PAUSED:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} {attached_program} is not paused "
+                                f"ERROR {attached_program} is not paused "
                                 f"(current state: {state.status.value}). "
                                 f"PRINT only works while paused.",
                             )
@@ -376,7 +359,7 @@ def handle_client(
                             available = ", ".join(state.variables.keys()) or "(none)"
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} Variable '{var_name}' not found. "
+                                f"ERROR Variable '{var_name}' not found. "
                                 f"Available: {available}",
                             )
                         else:
@@ -388,12 +371,12 @@ def handle_client(
             # ---- SET <variable> <value> ------------------------------
             # modifica valoarea unei variabile din programul atasat
             # functioneaza doar cand programul este in PAUSED
-            elif cmd == CMD_SET:
+            elif cmd == "SET":
                 tokens = arg.split(maxsplit=1)  # maxsplit=1 pt a pastra valoarea intacta
                 if len(tokens) != 2:
-                    send_message(client_sock, f"{RESP_ERROR} Usage: SET <variable> <value>")
+                    send_message(client_sock, f"ERROR Usage: SET <variable> <value>")
                 elif attached_program is None:
-                    send_message(client_sock, f"{RESP_ERROR} Not attached to any program.")
+                    send_message(client_sock, f"ERROR Not attached to any program.")
                 else:
                     var_name, val_str = tokens
                     state = programs[attached_program]
@@ -402,7 +385,7 @@ def handle_client(
                         if state.status != ExecutionStatus.PAUSED:
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} {attached_program} is not paused "
+                                f"ERROR {attached_program} is not paused "
                                 f"(current state: {state.status.value}). "
                                 f"SET only works while paused.",
                             )
@@ -411,7 +394,7 @@ def handle_client(
                             available = ", ".join(state.variables.keys()) or "(none)"
                             send_message(
                                 client_sock,
-                                f"{RESP_ERROR} Variable '{var_name}' not found. "
+                                f"ERROR Variable '{var_name}' not found. "
                                 f"Available: {available}",
                             )
                         else:
@@ -422,7 +405,7 @@ def handle_client(
                             except ValueError:
                                 send_message(
                                     client_sock,
-                                    f"{RESP_ERROR} Invalid value: '{val_str}' "
+                                    f"ERROR Invalid value: '{val_str}' "
                                     f"is not a valid number.",
                                 )
                                 continue
@@ -433,11 +416,11 @@ def handle_client(
                                 f"[handler] SET {var_name}: {old_value} -> {new_value} "
                                 f"({attached_program})"
                             )
-                            send_message(client_sock, f"{RESP_OK} {var_name} = {new_value}")
+                            send_message(client_sock, f"OK {var_name} = {new_value}")
 
             # ---- QUIT ------------------------------------------------
             # deconecteaza clientul de la server
-            elif cmd == CMD_QUIT:
+            elif cmd == "QUIT":
                 send_message(client_sock, "BYE")  # trimite confirmare
                 break  # iese din bucla de procesare comenzi
 
@@ -445,29 +428,29 @@ def handle_client(
             # afiseaza lista de comenzi disponibile cu descrieri
             elif cmd == "HELP":
                 help_text = (
-                    "=== Remote Debugger Commands ===\n"
+                    "=== Comenzi Remote Debugger ===\n"
                     "\n"
                     "  General:\n"
-                    "    LIST                     - List all programs and their states\n"
-                    "    STATUS <program>         - Show detailed program status\n"
-                    "    HELP                     - Show this help message\n"
-                    "    QUIT                     - Disconnect from the server\n"
+                    "    LIST                     - Listeaza toate programele si starile lor\n"
+                    "    STATUS <program>         - Afiseaza informatii detaliate despre un program\n"
+                    "    HELP                     - Afiseaza acest mesaj de ajutor\n"
+                    "    QUIT                     - Deconectare de la server\n"
                     "\n"
-                    "  Execution:\n"
-                    "    ATTACH <program>         - Attach to a program for debugging\n"
-                    "    DETACH                   - Detach from current program\n"
-                    "    RUN <program>            - Start a READY program\n"
+                    "  Executie:\n"
+                    "    ATTACH <program>         - Ataseaza la un program pentru depanare\n"
+                    "    DETACH                   - Detaseaza de la programul curent\n"
+                    "    RUN <program>            - Porneste un program in starea READY\n"
                     "\n"
-                    "  Breakpoints (while READY or PAUSED):\n"
-                    "    BREAK <program> <line>   - Set a breakpoint (0-based line)\n"
-                    "    UNBREAK <program> <line> - Remove a breakpoint\n"
-                    "    CONTINUE                 - Resume a paused program\n"
+                    "  Breakpoints (in READY sau PAUSED):\n"
+                    "    BREAK <program> <linie>  - Seteaza un breakpoint (linie 0-based)\n"
+                    "    UNBREAK <program> <linie> - Sterge un breakpoint\n"
+                    "    CONTINUE                 - Reia executia unui program oprit\n"
                     "\n"
-                    "  Inspection (while PAUSED):\n"
-                    "    PRINT <variable>         - Show variable value\n"
-                    "    SET <variable> <value>   - Modify variable value\n"
+                    "  Inspectie (in PAUSED):\n"
+                    "    PRINT <variabila>        - Afiseaza valoarea unei variabile\n"
+                    "    SET <variabila> <valoare> - Modifica valoarea unei variabile\n"
                     "\n"
-                    "  Workflow: ATTACH -> BREAK -> RUN -> PAUSED -> PRINT/SET -> CONTINUE"
+                    "  Flux: ATTACH -> BREAK -> RUN -> PAUSED -> PRINT/SET -> CONTINUE"
                 )
                 send_message(client_sock, help_text)
 
@@ -475,7 +458,7 @@ def handle_client(
             else:
                 send_message(
                     client_sock,
-                    f"{RESP_ERROR} Unknown command: '{cmd}'. Type HELP for a list of commands.",
+                    f"ERROR Unknown command: '{cmd}'. Type HELP for a list of commands.",
                 )
 
     finally:

@@ -4,6 +4,6 @@ services:
     build: .
     command: python server/server.py
     ports:
-      - "9000:5000"
+      - "8524:8524"
     volumes:
       - ./server/programs:/app/server/programs

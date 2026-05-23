@@ -2,28 +2,22 @@
 clientul interactiv - se conecteaza la server prin TCP
 trimite comenzi introduse de utilizator si afiseaza raspunsurile primite
 
-Foloseste doua threaduri:
-  - thread-ul principal: citeste comenzi de la tastatura si le trimite
-  - thread-ul reader: citeste continuu mesaje de la server si le afiseaza
-
-Aceasta arhitectura rezolva problema notificarilor asincrone (PAUSED, FINISHED)
-care pot veni in orice moment, nu doar ca raspuns la o comanda.
+Foloseste select() pentru a multiplexa intre socket si stdin
+intr-un singur thread, fara a avea nevoie de threading.
+select() asteapta pana cand fie serverul trimite date,
+fie utilizatorul introduce o comanda – oricare vine prima.
 """
 
 import socket
 import sys
-import threading
-import time
+import select
 
 
 SERVER_HOST = "localhost"   # adresa implicita a serverului
-SERVER_PORT = 9000          # portul implicit pe care asculta serverul
+SERVER_PORT = 8524          # portul pe care asculta serverul (portul universitar alocat)
 
 ENCODING = "utf-8"          # codificarea folosita pentru mesaje
 BUFFER_SIZE = 4096          # dimensiunea maxima a unui chunk citit din socket
-
-# event folosit pentru a semnaliza thread-ului reader sa se opreasca
-stop_event = threading.Event()
 
 
 # trimite un mesaj catre server, adaugand delimitatorul newline
@@ -37,56 +31,20 @@ def send_message(sock: socket.socket, message: str) -> None:
     sock.sendall((message + "\n").encode(ENCODING))
 
 
-# thread-ul de citire – ruleaza in background si printeaza tot ce vine de la server
-def reader_thread(sock: socket.socket) -> None:
-    """
-    Thread dedicat citirii mesajelor de la server.
-
-    Citeste continuu din socket si afiseaza fiecare mesaj pe ecran.
-    Aceasta abordare permite:
-    - primirea notificarilor asincrone (PAUSED, FINISHED) in orice moment
-    - afisarea corecta a raspunsurilor multi-linie (LIST, HELP)
-    - evitarea problemei de 'raspunsuri decalate' din modelul sincron
-
-    Thread-ul se opreste cand socketul este inchis sau stop_event este setat.
-    """
-    buf = b""  # buffer de bytes pentru acumularea datelor primite fragmentat
-    while not stop_event.is_set():
-        try:
-            chunk = sock.recv(BUFFER_SIZE)  # citeste un bloc de date din socket
-        except (ConnectionResetError, OSError):
-            # eroare de conexiune – socketul a fost inchis sau resetat
-            if not stop_event.is_set():
-                print("\n[client] Server closed the connection.")
-            break
-        if not chunk:
-            # recv() returneaza bytes gol = conexiune inchisa de server
-            if not stop_event.is_set():
-                print("\n[client] Server closed the connection.")
-            break
-
-        buf += chunk  # adauga chunk-ul la buffer
-
-        # proceseaza toate mesajele complete din buffer
-        # fiecare mesaj e terminat cu newline (\n)
-        # pot exista mai multe mesaje in acelasi chunk (ex: LIST cu 3 programe)
-        while b"\n" in buf:
-            # split(maxsplit=1) separa primul mesaj de restul buffer-ului
-            line, buf = buf.split(b"\n", 1)
-            msg = line.decode(ENCODING).rstrip()  # decodifica si elimina whitespace
-            if msg:
-                print(msg)  # afiseaza mesajul primit
-
-
 # functia principala - creeaza conexiunea si ruleaza bucla de comenzi
 def main() -> None:
     """
     Punctul de intrare al clientului.
 
-    1. Se conecteaza la server prin TCP
-    2. Porneste thread-ul reader in background (citeste si afiseaza raspunsuri)
-    3. Intra in bucla principala unde citeste comenzi de la tastatura si le trimite
-    4. La QUIT sau Ctrl+C, inchide conexiunea
+    Foloseste select() pentru a multiplexa intre doua surse de date:
+    1. socket-ul TCP (raspunsuri si notificari de la server)
+    2. stdin (comenzi de la tastatura)
+
+    select() blocheaza pana cand cel putin una din surse are date disponibile,
+    apoi le procesam pe rand. Aceasta abordare:
+    - nu necesita threading
+    - primeste notificarile asincrone (PAUSED, FINISHED) imediat
+    - afiseaza raspunsurile in ordinea corecta
     """
     host = SERVER_HOST
     port = SERVER_PORT
@@ -106,42 +64,64 @@ def main() -> None:
         print("[client] Connection refused. Is the server running?")
         sys.exit(1)
 
-    # porneste thread-ul reader in background
-    # daemon=True: thread-ul se opreste automat cand procesul principal se termina
-    t = threading.Thread(target=reader_thread, args=(sock,), daemon=True)
-    t.start()
+    print("[client] Connected. Waiting for server...")
 
-    # asteapta putin pentru a primi si afisa mesajul WELCOME inainte de prompt
-    time.sleep(0.2)
+    running = True  # flag pentru bucla principala
 
     try:
-        while True:  # bucla principala de citire comenzi
-            try:
-                cmd = input("dbg> ").strip()  # citeste comanda de la utilizator
-            except EOFError:
-                cmd = "QUIT"  # Ctrl+D trimite QUIT automat
+        while running:
+            # select() asteapta pana cand socket-ul SAU stdin au date disponibile
+            # primul argument = lista de file descriptors de monitorizat pentru citire
+            # returneaza lista celor care au date gata de citit
+            readable, _, _ = select.select([sock, sys.stdin], [], [])
 
-            if not cmd:
-                continue  # ignora liniile goale
+            for source in readable:
+                if source is sock:
+                    # --- date de la server ---
+                    try:
+                        data = sock.recv(BUFFER_SIZE)
+                    except (ConnectionResetError, OSError):
+                        print("\n[client] Connection lost.")
+                        running = False
+                        break
 
-            send_message(sock, cmd)  # trimite comanda la server
-            # raspunsul va fi citit si afisat automat de reader_thread
+                    if not data:
+                        # recv() returneaza bytes gol = serverul a inchis conexiunea
+                        print("\n[client] Server closed the connection.")
+                        running = False
+                        break
 
-            # asteapta putin pentru ca reader_thread sa primeasca si afiseze
-            # raspunsul inainte ca input() sa afiseze un nou prompt "dbg>"
-            time.sleep(0.15)
+                    # decodifica si afiseaza fiecare linie primita
+                    # pot veni mai multe mesaje in acelasi recv() (ex: LIST cu 3 programe)
+                    text = data.decode(ENCODING).strip()
+                    if text:
+                        print(text)
+                        # re-afiseaza promptul dupa mesajele serverului
+                        print("dbg> ", end="", flush=True)
 
-            if cmd.upper() == "QUIT":
-                time.sleep(0.3)  # asteapta putin sa primeasca raspunsul BYE
-                break
+                elif source is sys.stdin:
+                    # --- comanda de la utilizator ---
+                    cmd = sys.stdin.readline().strip()
+
+                    if not cmd:
+                        # linie goala - re-afiseaza promptul
+                        print("dbg> ", end="", flush=True)
+                        continue
+
+                    send_message(sock, cmd)  # trimite comanda la server
+
+                    if cmd.upper() == "QUIT":
+                        running = False
+                        break
 
     except KeyboardInterrupt:
         print("\n[client] Interrupted.")  # Ctrl+C
     finally:
-        stop_event.set()  # semnalizeaza reader_thread sa se opreasca
-        sock.close()      # inchidem socketul
+        sock.close()  # inchidem socketul indiferent de motiv
         print("[client] Disconnected.")
 
 
 if __name__ == "__main__":
+    # afiseaza promptul initial
+    print("dbg> ", end="", flush=True)
     main()
