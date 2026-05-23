@@ -398,10 +398,9 @@ def handle_client(
                                 f"Available: {available}",
                             )
                         else:
-                            # parseaza noua valoare ca int sau float
+                            # parseaza noua valoare ca numar
                             try:
-                                # daca contine punct zecimal -> float, altfel -> int
-                                new_value = float(val_str) if "." in val_str else int(val_str)
+                                new_value = float(val_str)
                             except ValueError:
                                 send_message(
                                     client_sock,

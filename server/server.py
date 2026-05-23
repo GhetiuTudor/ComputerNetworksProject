@@ -1,7 +1,7 @@
 """
 server.py – punctul de intrare al serverului TCP
 
-Porneste un server TCP care asculta pe portul 5000 (in container).
+Porneste un server TCP care asculta pe portul 8524 (in container).
 Fiecare client care se conecteaza primeste un thread dedicat
 care ii proceseaza comenzile prin handle_client().
 """

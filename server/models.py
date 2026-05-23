@@ -60,6 +60,6 @@ class ProgramState:
     attached_socket: Optional[socket.socket] = None        # socket-ul clientului pentru notificari asincrone
     # field cu default_factory creeaza un obiect Condition nou pentru fiecare instanta
     # (altfel toate instantele ar imparti acelasi obiect - bug de partajare)
-    # Condition wrapeaza un Lock si permite wait/notify pentru sincronizare intre threaduri
+    # Condition include un Lock si permite wait/notify pentru sincronizare intre threaduri
     condition: threading.Condition = field(
         default_factory=lambda: threading.Condition(threading.Lock()))

@@ -18,7 +18,7 @@ from protocol import send_message
 # calea catre folderul cu programe (.txt) - relativa la locatia acestui fisier
 PROGRAMS_DIR = os.path.join(os.path.dirname(__file__), "programs")
 
-# delay in secunde intre executia fiecarei linii (pentru demo/vizualizare)
+# delay in secunde intre executia fiecarei linii (pentru vizualizare)
 LINE_DELAY = 1.0
 
 
@@ -136,7 +136,6 @@ def run_program(state: ProgramState) -> None:
                 # trece programul in starea PAUSED
                 state.status = ExecutionStatus.PAUSED
                 line_no = state.current_line
-                client_sock = state.attached_socket
                 print(
                     f"[runner] {state.name} PAUSED at line {line_no} "
                     f"(breakpoint)"
@@ -144,7 +143,7 @@ def run_program(state: ProgramState) -> None:
 
                 # trimite notificare asincrona clientului ca programul s-a oprit
                 try:
-                    send_message(client_sock, f"PAUSED {line_no}")
+                    send_message(state.attached_socket, f"PAUSED {line_no}")
                 except OSError:
                     pass  # clientul s-a deconectat, ignoram eroarea
 
